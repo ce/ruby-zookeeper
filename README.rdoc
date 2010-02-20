@@ -9,12 +9,14 @@ Work in progress.  Most major operations are implemented and working, but ACL ge
 Platform-specific status as follows:
 
 - MRI 1.9.1 OSX 10.5 and 10.6: working
-- JRuby 1.4.0: working, but contexts passed to async calls are getting munged...low priority but should be simple to fix
 - MRI Solaris 5.11: build env problems, more?
 - MRI BSD: untested
 - MRI Linux: untested
+- JRuby 1.4.0: working, but contexts passed to async calls are getting munged...low priority but should be simple to fix
 
 To do: https://github.com/ce/ruby-zookeeper/issues
+
+Also note progress and status in {https://issues.apache.org/jira/browse/ZOOKEEPER-661}[https://issues.apache.org/jira/browse/ZOOKEEPER-661].
 
 == Prerequisites
 
