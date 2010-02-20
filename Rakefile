@@ -5,19 +5,19 @@ require 'yaml'
 begin
   require 'jeweler'
   Jeweler::Tasks.new do |gem|
-    gem.name = "zookeeper"
-    gem.summary = "ruby bindings for ZooKeeper"
+    gem.name = "ruby-zookeeper"
+    gem.summary = "Ruby bindings for Apache ZooKeeper"
+    gem.description = "Ruby bindings for Apache ZooKeeper"
+    gem.email = "github@creationengines.net"
     gem.homepage = "http://github.com/ce/ruby-zookeeper"
-    gem.email = "foo@bar.com"
-    gem.description = "A Ruby library for Apache ZooKeeper"
     gem.authors = ["Ruben Nine", "Brett Eisenberg", "Shane Mignins", "Andrew Reynhout"]
-    gem.rubyforge_project = 'zookeeper'
+    gem.rubyforge_project = 'ruby-zookeeper'
     gem.add_dependency('ffi', '>= 0.4.0')
     gem.add_development_dependency('ffi-swig-generator', '>= 0.3.2')
   end
   Jeweler::RubyforgeTasks.new
-rescue LoadError
-  puts "Jeweler (or a dependency) not available."
+#rescue LoadError
+#  puts "Jeweler (or a dependency) not available."
 end
 
 require 'spec/rake/spectask'
@@ -59,7 +59,7 @@ Rake::RDocTask.new do |rdoc|
   end
 
   rdoc.rdoc_dir = 'rdoc'
-  rdoc.title = "zookeeper #{version}"
+  rdoc.title = "ruby-zookeeper #{version}"
   rdoc.rdoc_files.include('README*')
   rdoc.rdoc_files.include('lib/**/*.rb')
 end
