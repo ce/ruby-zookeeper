@@ -75,7 +75,7 @@ Gem::Specification.new do |s|
      "zk/zookeeper-3.2.0.jar",
      "zookeeper.gemspec"
   ]
-  s.homepage = %q{http://github.com/brett/zookeeper}
+  s.homepage = %q{http://github.com/ce/ruby-zookeeper}
   s.rdoc_options = ["--charset=UTF-8"]
   s.require_paths = ["lib"]
   s.rubyforge_project = %q{zookeeper}

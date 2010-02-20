@@ -14,7 +14,7 @@ Platform-specific status as follows:
 - MRI BSD: untested
 - MRI Linux: untested
 
-To do: https://github.com/brett/zookeeper/issues
+To do: https://github.com/ce/ruby-zookeeper/issues
 
 == Prerequisites
 

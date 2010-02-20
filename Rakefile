@@ -7,7 +7,7 @@ begin
   Jeweler::Tasks.new do |gem|
     gem.name = "zookeeper"
     gem.summary = "ruby bindings for ZooKeeper"
-    gem.homepage = "http://github.com/brett/zookeeper"
+    gem.homepage = "http://github.com/ce/ruby-zookeeper"
     gem.email = "foo@bar.com"
     gem.description = "A Ruby library for Apache ZooKeeper"
     gem.authors = ["Ruben Nine", "Brett Eisenberg", "Shane Mignins", "Andrew Reynhout"]
