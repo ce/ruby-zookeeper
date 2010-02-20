@@ -16,8 +16,8 @@ begin
     gem.add_development_dependency('ffi-swig-generator', '>= 0.3.2')
   end
   Jeweler::RubyforgeTasks.new
-#rescue LoadError
-#  puts "Jeweler (or a dependency) not available."
+rescue LoadError
+  puts "Jeweler (or a dependency) not available."
 end
 
 require 'spec/rake/spectask'
