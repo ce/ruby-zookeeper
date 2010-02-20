@@ -1,5 +1,0 @@
-Apply the patch to a clean distribution of ZK 3.2.0.  
-
-You will probably have to tweak the INCLUDES and LDFLAGS for your
-environment.
-
