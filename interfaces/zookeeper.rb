@@ -1,0 +1,1 @@
+ignore 'deallocate_vector'

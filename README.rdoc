@@ -1,0 +1,37 @@
+= ruby-zookeeper
+
+A Ruby FFI binding for the {Apache ZooKeeper}[http://hadoop.apache.org/zookeeper/] C API library.
+
+== Status
+
+Work in progress.  Most major operations are implemented and working, but ACL get/set is not finished.
+
+Platform-specific status as follows:
+
+- MRI 1.9.1 OSX 10.5 and 10.6: working
+- JRuby 1.4.0: working, but contexts passed to async calls are getting munged...low priority but should be simple to fix
+- MRI Solaris 5.11: build env problems, more?
+- MRI BSD: untested
+- MRI Linux: untested
+
+To do: https://github.com/brett/zookeeper/issues
+
+== Prerequisites
+
+- ruby-ffi: {http://github.com/ffi/ffi/}[http://github.com/ffi/ffi/]
+
+== Installation
+
+ruby-zookeeper is currently NOT packaged, and requires patches to the ZooKeeper multithreaded C API library.  The patched source is included in zk/src/c.
+
+To build ZK C API libs (include-dir and lib-dir paths are correct on my system OSX+MacPorts, YMMV):
+  $ cd zk/src/c
+  $ autoreconf -f -i
+  $ ./configure --enable-ruby \
+    --with-ruby-include-dir=/opt/local/include/ruby-1.9.1 \
+    --with-ruby-lib-dir=/opt/local/lib
+  $ gmake
+
+To run (e.g. specs):
+  $ ZOOKEEPER_LIB=zk/src/c/.libs/libzookeeper_mt.dylib spec . -cfn
+

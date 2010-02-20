@@ -1,0 +1,340 @@
+diff -ru zookeeper-3.2.0-pristine/src/c/Makefile.in zookeeper-3.2.0/src/c/Makefile.in
+--- zookeeper-3.2.0-pristine/src/c/Makefile.in	2009-07-01 12:51:22.000000000 -0400
++++ zookeeper-3.2.0/src/c/Makefile.in	2009-09-03 14:29:10.000000000 -0400
+@@ -173,6 +173,7 @@
+ zktest_st_OBJECTS = $(nodist_zktest_st_OBJECTS)
+ zktest_st_DEPENDENCIES = libzkst.la libhashtable.la \
+ 	$(am__DEPENDENCIES_1)
++INCLUDES = -I/opt/local/include/ruby-1.9.1 -L/opt/local/lib -L/usr/local/lib
+ DEFAULT_INCLUDES = -I. -I$(srcdir) -I.
+ depcomp = $(SHELL) $(top_srcdir)/depcomp
+ am__depfiles_maybe = depfiles
+@@ -239,7 +240,7 @@
+ CXXDEPMODE = @CXXDEPMODE@
+ CXXFLAGS = -Wall -g
+ CYGPATH_W = @CYGPATH_W@
+-DEFS = @DEFS@
++DEFS = @DEFS@ -DHAVE_STRUCT_TIMESPEC -DHAVE_SNPRINTF
+ DEPDIR = @DEPDIR@
+ DOXYGEN_PAPER_SIZE = @DOXYGEN_PAPER_SIZE@
+ DSYMUTIL = @DSYMUTIL@
+@@ -301,7 +302,7 @@
+ INSTALL_SCRIPT = @INSTALL_SCRIPT@
+ INSTALL_STRIP_PROGRAM = @INSTALL_STRIP_PROGRAM@
+ LD = @LD@
+-LDFLAGS = @LDFLAGS@
++LDFLAGS = @LDFLAGS@ -I/opt/local/include/ruby-1.9.1 -L/opt/local/lib -L/usr/local/lib -lruby
+ LIBOBJS = @LIBOBJS@
+ LIBS = @LIBS@
+ LIBTOOL = @LIBTOOL@
+diff -ru zookeeper-3.2.0-pristine/src/c/src/zk_hashtable.c zookeeper-3.2.0/src/c/src/zk_hashtable.c
+--- zookeeper-3.2.0-pristine/src/c/src/zk_hashtable.c	2009-07-01 12:51:22.000000000 -0400
++++ zookeeper-3.2.0/src/c/src/zk_hashtable.c	2009-08-19 11:56:46.000000000 -0400
+@@ -263,12 +263,56 @@
+     }
+ }
+ 
++/*  Changes for ruby-zookeeper  *************************************
++**
++**  To work around Ruby's threading peculiarities, we wrap watcher_fn
++**  callback invocations in a ruby thread.
++**
++**  There's probably a better way to do this, and there's certainly a
++**  better way to integrate it into ZK code, but this works and will
++**  do for now.  Patches/suggestions appreciated!
++*/
++
++#include <ruby.h>
++
++typedef struct watcher_data {
++  watcher_fn cb;
++  zhandle_t *zh;
++  int type;
++  int state;
++  char *path;
++  void *ctx;
++  } watcher_data;
++
++static void ruby_wrapper_for_watcher_2(struct watcher_data *w)
++  {
++  w->cb(w->zh,w->type,w->state,w->path,w->ctx);
++  free(w);
++  }
++
++static void ruby_wrapper_for_watcher(watcher_fn cb, zhandle_t *zh, int type,int state, char *path, void *ctx)
++  {
++  struct watcher_data *w;
++
++  w = (watcher_data *)malloc(sizeof(watcher_data));
++  w->cb = (void *)cb;
++  w->zh = zh;
++  w->type = type;
++  w->state = state;
++  w->path = strdup(path);
++  w->ctx = ctx;
++  //printf("   w:0x%08x, cb:0x%08x, path:%s, type:%d, state:%d\n", (unsigned int)w, (unsigned int)w->cb, w->path, w->type, w->state);
++
++  rb_thread_create((void *)ruby_wrapper_for_watcher_2, w);
++  }
++
+ static void do_foreach_watcher(watcher_object_t* wo,zhandle_t* zh,
+         const char* path,int type,int state)
+ {
+     char *client_path = sub_string(zh, path);
+     while(wo!=0){
+-        wo->watcher(zh,type,state,client_path,wo->context);
++        //wo->watcher(zh,type,state,client_path,wo->context);
++        ruby_wrapper_for_watcher(wo->watcher,zh,type,state,client_path,wo->context);
+         wo=wo->next;
+     }    
+     free_duplicate_path(client_path, path);
+diff -ru zookeeper-3.2.0-pristine/src/c/src/zookeeper.c zookeeper-3.2.0/src/c/src/zookeeper.c
+--- zookeeper-3.2.0-pristine/src/c/src/zookeeper.c	2009-07-01 12:51:22.000000000 -0400
++++ zookeeper-3.2.0/src/c/src/zookeeper.c	2009-09-03 14:27:50.000000000 -0400
+@@ -1592,8 +1592,103 @@
+     return cptr;
+ }
+ 
++/* Changes for ruby-zookeeper  *************************************
++**
++**  To work around Ruby's threading peculiarities, we wrap callback
++**  invocations in a ruby thread.
++*/
++
++#include <ruby.h>
++
++typedef struct data_completion_data {
++  data_completion_t dc;
++  int rc;
++  char *value;
++  int value_len;
++  struct Stat *stat;
++  void *ctx;
++  } data_completion_data;
++
++static void ruby_wrapper_for_data_completion_2(struct data_completion_data *cb)
++  {
++  LOG_DEBUG(("--- invoking callback."));
++  cb->dc(cb->rc, cb->value, cb->value_len, cb->stat, cb->ctx);
++  LOG_DEBUG(("--- callback returned, freeing struct."));
++  free(cb);
++  LOG_DEBUG(("--- struct freed."));
++  }
++
++static void ruby_wrapper_for_data_completion(data_completion_t dc, int rc, void *value, int value_len, void *stat, void *ctx)
++  {
++  struct data_completion_data *cb;
++
++  cb = (data_completion_data *)malloc(sizeof(data_completion_data));
++  cb->dc = dc;
++  cb->rc = rc;
++  cb->value = value ? strdup(value) : 0;
++  cb->value_len = value_len;
++  cb->stat = stat;
++  cb->ctx = ctx;
++
++// /*
++  LOG_DEBUG(("--- creating ruby thread for data_completion.\n\
++-----------------------\n\
++dc         0x%08x\n\
++rc         %d\n\
++value      0x%08x\n\
++value_len  %d\n\
++stat       0x%08x\n\
++ctx        0x%08x\n\
++=======================",
++    dc, rc, value, value_len, stat, ctx));
++// */
++  rb_thread_create((void *)ruby_wrapper_for_data_completion_2, cb);
++  }
++
++typedef struct strings_completion_data {
++  strings_completion_t dc;
++  int rc;
++  struct String_vector *strings;
++  void *ctx;
++  } strings_completion_data;
++
++static void ruby_wrapper_for_strings_completion_2(struct strings_completion_data *cb)
++  {
++  cb->dc(cb->rc, cb->strings, cb->ctx);
++  free(cb);
++  }
++
++static void ruby_wrapper_for_strings_completion(strings_completion_t dc, int rc, struct String_vector *strings, void *ctx)
++  {
++  struct strings_completion_data *cb;
++
++  cb = (strings_completion_data *)malloc(sizeof(strings_completion_data));
++  cb->dc = dc;
++  cb->rc = rc;
++  cb->strings = strings;
++  cb->ctx = ctx;
++
++/*
++  LOG_DEBUG(("--- about to create ruby thread.\n\
++-----------------------\n\
++dc             0x%08x\n\
++rc             %d\n\
++strings        0x%08x\n\
++strings->count %d\n\
++&strings->count 0x%08x\n\
++strings->data  0x%08x\n\
++&strings->data  0x%08x\n\
++*strings->data  0x%08x\n\
++ctx            0x%08x\n\
++=======================",
++    dc, rc, strings, strings->count, &strings->count, strings->data, &strings->data, *strings->data, ctx));
++*/
++  rb_thread_create((void *)ruby_wrapper_for_strings_completion_2, cb);
++  }
+ 
+ /* handles async completion (both single- and multithreaded) */
++// I think this means we need to wrap completion invocations for
++// both rc cases of each of the six completion types.
+ void process_completions(zhandle_t *zh)
+ {
+     completion_list_t *cptr;
+@@ -1621,15 +1716,18 @@
+             int rc = hdr.err;
+             switch (cptr->completion_type) {
+             case COMPLETION_DATA:
+-                LOG_DEBUG(("Calling COMPLETION_DATA for xid=%x rc=%d",cptr->xid,rc));
++                LOG_DEBUG(("Calling COMPLETION_DATAa for xid=%x rc=%d",cptr->xid,rc));
+                 if (rc) {
+-                    cptr->c.data_result(rc, 0, 0, 0, cptr->data);
++                    //cptr->c.data_result(rc, 0, 0, 0, cptr->data);
++                    ruby_wrapper_for_data_completion(cptr->c.data_result, rc, 0, 0, 0, (void *)cptr->data);
+                 } else {
+                     struct GetDataResponse res;
+                     deserialize_GetDataResponse(ia, "reply", &res);
+-                    cptr->c.data_result(rc, res.data.buff, res.data.len,
+-                            &res.stat, cptr->data);
+-                    deallocate_GetDataResponse(&res);
++                    //cptr->c.data_result(rc, res.data.buff, res.data.len,
++                    //        &res.stat, cptr->data);
++                    ruby_wrapper_for_data_completion(cptr->c.data_result, rc, res.data.buff, res.data.len, &res.stat, (void *)cptr->data);
++                    // FIXME: handle this in a non-leaky way
++                    //deallocate_GetDataResponse(&res);
+                 }
+                 break;
+             case COMPLETION_STAT:
+@@ -1646,12 +1744,33 @@
+             case COMPLETION_STRINGLIST:
+                 LOG_DEBUG(("Calling COMPLETION_STRINGLIST for xid=%x rc=%d",cptr->xid,rc));
+                 if (rc) {
+-                    cptr->c.strings_result(rc, 0, cptr->data);
++                    //cptr->c.strings_result(rc, 0, cptr->data);
++                    ruby_wrapper_for_strings_completion(cptr->c.strings_result, rc, 0, (void *)cptr->data);
+                 } else {
+                     struct GetChildrenResponse res;
+                     deserialize_GetChildrenResponse(ia, "reply", &res);
+-                    cptr->c.strings_result(rc, &res.children, cptr->data);
+-                    deallocate_GetChildrenResponse(&res);
++/*
++  LOG_DEBUG(("--- in COMPLETION_STRINGLISTa.\n\
++-----------------------\n\
++&res.children 0x%08x\n\
++&res.children.count  0x%08x\n\
++res.children.count  %d\n\
++&res.children.data  0x%08x\n\
++res.children.data  0x%08x\n\
++res.children.data[0]  0x%08x\n\
++res.children.data[1]  0x%08x\n\
++res.children.data[2]  0x%08x\n\
++=======================",
++&res.children,
++&res.children.count, res.children.count,
++&res.children.data, res.children.data,
++res.children.data[0], res.children.data[1], res.children.data[2]));
++*/
++                    //cptr->c.strings_result(rc, &res.children, cptr->data);
++                    ruby_wrapper_for_strings_completion(cptr->c.strings_result, rc, &res.children, (void *)cptr->data);
++                    // FIXME: deallocate_GetChildrenResponse wipes res before
++                    // ruby reads it.  For now, prefer leaking over failing..
++                    //deallocate_GetChildrenResponse(&res);
+                 }
+                 break;
+             case COMPLETION_STRING:
+@@ -1971,6 +2090,7 @@
+         c->c.string_result = (string_completion_t)dc;
+         break;
+     case COMPLETION_DATA:
++    LOG_DEBUG(("----DEBUG 7 dc 0x%08x",dc));
+         c->c.data_result = (data_completion_t)dc;
+         break;
+     case COMPLETION_STAT:
+@@ -2041,6 +2161,7 @@
+ static int add_data_completion(zhandle_t *zh, int xid, data_completion_t dc,
+         const void *data,watcher_registration_t* wo)
+ {
++    LOG_DEBUG(("----DEBUG 4 dc 0x%08x",dc));
+     return add_completion(zh, xid, COMPLETION_DATA, dc, data, 0,wo);
+ }
+ 
+@@ -2174,6 +2295,16 @@
+     struct GetDataRequest req =  { (char*)server_path, watcher!=0 };
+     int rc;
+             
++    LOG_DEBUG(("----DEBUG 1\n\
++zh   0x%08x\n\
++path 0x%08x\n\
++watcher 0x%08x\n\
++watcherCtx 0x%08x\n\
++dc   0x%08x\n\
++*dc  0x%08x\n\
++&dc  0x%08x\n\
++data 0x%08x\n\
++",zh,path,watcher,watcherCtx,dc,*dc,&dc,data));
+     if (zh==0 || !isValidPath(server_path, 0)) {
+         free_duplicate_path(server_path, path);
+         return ZBADARGUMENTS;
+@@ -2185,12 +2316,14 @@
+     oa=create_buffer_oarchive();
+     rc = serialize_RequestHeader(oa, "header", &h);
+     rc = rc < 0 ? rc : serialize_GetDataRequest(oa, "req", &req);
++    LOG_DEBUG(("----DEBUG 2 dc 0x%08x",dc));
+     enter_critical(zh);
+     rc = rc < 0 ? rc : add_data_completion(zh, h.xid, dc, data,
+         create_watcher_registration(server_path,data_result_checker,watcher,watcherCtx));
+     rc = rc < 0 ? rc : queue_buffer_bytes(&zh->to_send, get_buffer(oa),
+             get_buffer_len(oa));
+     leave_critical(zh);
++    LOG_DEBUG(("----DEBUG 3 dc 0x%08x",dc));
+     free_duplicate_path(server_path, path);
+     /* We queued the buffer, so don't free it */
+     close_buffer_oarchive(&oa, 0);
+@@ -2391,6 +2524,16 @@
+     struct GetChildrenRequest req = {(char*)server_path, watcher!=0 }; 
+     int rc;
+         
++    LOG_DEBUG(("----DEBUG 1 awget_children\n\
++zh   0x%08x\n\
++path 0x%08x\n\
++watcher 0x%08x\n\
++watcherCtx 0x%08x\n\
++dc   0x%08x\n\
++*dc  0x%08x\n\
++&dc  0x%08x\n\
++data 0x%08x\n\
++",zh,path,watcher,watcherCtx,dc,*dc,&dc,data));
+     if (zh==0 || !isValidPath(server_path, 0)) {
+         free_duplicate_path(server_path, path);
+         return ZBADARGUMENTS;
+@@ -2816,6 +2959,16 @@
+             *buffer_len = sc->u.data.buff_len;
+         }
+     }
++/*
++LOG_DEBUG(("--- zoo_wget ---------------\n\
++sc->u.data.buffer is %s at 0x%08x\n\
++buffer is %s at 0x%08x\n\
++*buffer_len is %d\n\
++==========================",
++sc->u.data.buffer, (void *)sc->u.data.buffer,
++buffer, (void *)buffer,
++*buffer_len));
++*/
+     free_sync_completion(sc);
+     return rc;
+ }
